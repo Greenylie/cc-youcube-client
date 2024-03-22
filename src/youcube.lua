@@ -26,7 +26,7 @@ local function is_lib(libs, lib)
 end
 
 local libs = { "youcubeapi", "numberformatter", "semver", "argparse", "string_pack" }
-local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules" }
+local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules", "/"..fs.getDir(shell.getRunningProgram()).."/lib"}
 
 -- LevelOS Support
 if _G.lOS then
