@@ -95,6 +95,17 @@ parser:option "-s" "--server"
     :target "server"
     :args(1)
 
+
+parser:option "-S" "--save"
+    :description "Saves the media in a local file. (Audio and video data are saved, respectively, in .dfpwm and .32vid files)"
+    :target "save"
+    :action "store"
+
+parser:flag "-o" "--offline"
+    :description "Resolve the URL as a local path. (Youcube automatically checks for both .32vid and .dfpwm with that name)"
+    :target "offline"
+    :action "store_true"
+
 parser:flag "--nv" "--no-video"
     :description "Disables video."
     :target "no_video"
@@ -156,6 +167,34 @@ end
 
 if args.no_video and args.no_audio then
     parser:error("Nothing will happen, when audio and video is disabled!")
+end
+
+if args.save then
+    local function fetchAndRemoveExtension(extension)
+        print("Request for a "..extension.." file.")
+        args.save = string.sub(args.save, 0, #args.save - #extension)
+    end
+    if string.match(args.save, ".dfpwm$") then
+        fetchAndRemoveExtension(".dfpwm")
+        print("Disabling video data for you.")
+        args.no_video = true
+    elseif string.match(args.save, ".32vid$") then
+        fetchAndRemoveExtension(".32vid")
+        print("Disabling audio data for you.")
+        args.no_audio = true
+    end
+    print("\nINFO: Don't input any extension to download both video and audio files!")
+end
+
+
+--TODO: Remove debug prints
+
+if args.offline then
+    print("Offline!")
+end
+
+if args.save then
+    print("Saving in "..args.save)
 end
 
 -- CraftOS-PC support --
