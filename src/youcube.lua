@@ -25,8 +25,9 @@ local function is_lib(libs, lib)
     return false
 end
 
+local executionDir = ("/%s"):format(fs.getDir(shell.getRunningProgram()))
 local libs = { "youcubeapi", "numberformatter", "semver", "argparse", "string_pack" }
-local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules", "/"..fs.getDir(shell.getRunningProgram()).."/lib"}
+local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules", ("%s/lib"):format(executionDir)}
 
 -- LevelOS Support
 if _G.lOS then
@@ -95,10 +96,9 @@ parser:option "-s" "--server"
     :target "server"
     :args(1)
 
-
 parser:option "-S" "--save"
-    :description "Saves the media in a local file. (Audio and video data are saved, respectively, in .dfpwm and .32vid files)"
-    :target "save"
+    :description "Saves the media in the specified local file. (Audio and video data are saved, respectively, in .dfpwm and .32vid files)"
+    :target "file_name"
     :action "store"
 
 parser:flag "-o" "--offline"
@@ -169,16 +169,16 @@ if args.no_video and args.no_audio then
     parser:error("Nothing will happen, when audio and video is disabled!")
 end
 
-if args.save then
+if args.file_name then
     local function fetchAndRemoveExtension(extension)
         print("Request for a "..extension.." file.")
-        args.save = string.sub(args.save, 0, #args.save - #extension)
+        args.file_name = string.sub(args.file_name, 0, #args.file_name - #extension)
     end
-    if string.match(args.save, ".dfpwm$") then
+    if string.match(args.file_name, ".dfpwm$") then
         fetchAndRemoveExtension(".dfpwm")
         print("Disabling video data for you.")
         args.no_video = true
-    elseif string.match(args.save, ".32vid$") then
+    elseif string.match(args.file_name, ".32vid$") then
         fetchAndRemoveExtension(".32vid")
         print("Disabling audio data for you.")
         args.no_audio = true
@@ -193,8 +193,8 @@ if args.offline then
     print("Offline!")
 end
 
-if args.save then
-    print("Saving in "..args.save)
+if args.file_name then
+    print("Saving in "..args.file_name)
 end
 
 -- CraftOS-PC support --
@@ -208,20 +208,24 @@ end
 local function get_audiodevices()
     local audiodevices = {}
 
-    local speakers = { peripheral.find("speaker") }
-    for i = 1, #speakers do
-        audiodevices[#audiodevices + 1] = libs.youcubeapi.Speaker.new(speakers[i])
-    end
+    if args.file_name then
+        audiodevices[#audiodevices + 1] = libs.youcubeapi.File.new(("%s/%s.dfpwm"):format(executionDir, args.file_name))
+    else
+        local speakers = { peripheral.find("speaker") }
+        for i = 1, #speakers do
+            audiodevices[#audiodevices + 1] = libs.youcubeapi.Speaker.new(speakers[i])
+        end
 
-    local tapes = { peripheral.find("tape_drive") }
-    for i = 1, #tapes do
-        audiodevices[#audiodevices + 1] = libs.youcubeapi.Tape.new(tapes[i])
-    end
+        local tapes = { peripheral.find("tape_drive") }
+        for i = 1, #tapes do
+            audiodevices[#audiodevices + 1] = libs.youcubeapi.Tape.new(tapes[i])
+        end
 
-    if #audiodevices == 0 then
-        -- Disable audio when no audiodevice is found
-        args.no_audio = true
-        return audiodevices
+        if #audiodevices == 0 then
+            -- Disable audio when no audiodevice is found
+            args.no_audio = true
+            return audiodevices
+        end
     end
 
     -- Validate audiodevices
@@ -359,6 +363,7 @@ local function play_audio(buffer, title)
     end
 
     while true do
+        print("Next chunk")
         local chunk = buffer:next()
 
         -- Adjust buffer size on first chunk

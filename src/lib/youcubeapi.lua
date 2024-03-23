@@ -316,6 +316,40 @@ function Speaker.new(speaker)
     return self
 end
 
+local File = {}
+
+--- Create's a new File instance.
+-- @tparam speaker speaker The speaker
+-- @treturn AudioDevice|Speaker instance
+function File.new(path)
+    local self = AudioDevice.new({ path = path })
+
+    function self:validate()
+        if fs.exists(self.path) then
+            return ("%s already exists!"):format(self.path)
+        else
+            self.file = fs.open(path,"w")
+            self.file.close()
+        end
+    end
+
+    function self:write(chunk)
+        local freeSpace = fs.getFreeSpace(fs.getDir(self.path))
+        if freeSpace < 1000000 then
+            fs.delete(self.path)
+            error("Download canceled because of low disk space (<1mb)")
+        else
+            self.file = fs.open(self.path,"ab")
+            for i = 1, #chunk do
+                self.file.write(chunk:byte(i)) --This avoids loosing binary data
+            end
+            self.file.close()
+        end
+    end
+
+    return self
+end
+
 --[[- @{AudioDevice} from a [Computronics tape_drive](https://wiki.vexatos.com/wiki:computronics:tape)
     @type Tape
     @usage Example:
@@ -625,6 +659,7 @@ return {
     API = API,
     AudioDevice = AudioDevice,
     Speaker = Speaker,
+    File = File,
     Tape = Tape,
     Base64 = Base64,
     Filler = Filler,
