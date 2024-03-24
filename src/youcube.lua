@@ -25,9 +25,10 @@ local function is_lib(libs, lib)
     return false
 end
 
-local executionDir = ("/%s"):format(fs.getDir(shell.getRunningProgram()))
+local programDir = ("/%s"):format(fs.getDir(shell.getRunningProgram()))
+local executionDir = shell.dir() == "" and "/" or "/" .. shell.dir() .. "/"
 local libs = { "youcubeapi", "numberformatter", "semver", "argparse", "string_pack" }
-local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules", ("%s/lib"):format(executionDir)}
+local lib_paths = { ".", "./lib", "./apis", "./modules", "/", "/lib", "/apis", "/modules", ("%s/lib"):format(programDir)}
 
 -- LevelOS Support
 if _G.lOS then
@@ -169,21 +170,40 @@ if args.no_video and args.no_audio then
     parser:error("Nothing will happen, when audio and video is disabled!")
 end
 
+local function fetchAndRemoveExtension(filename,extension)
+    return string.sub(filename, 0, #filename - #extension)
+end
+
 if args.file_name then
-    local function fetchAndRemoveExtension(extension)
-        print("Request for a "..extension.." file.")
-        args.file_name = string.sub(args.file_name, 0, #args.file_name - #extension)
-    end
+    args["local_play"] = true
     if string.match(args.file_name, ".dfpwm$") then
-        fetchAndRemoveExtension(".dfpwm")
+        print("Request for an audio file.")
+        args.file_name = fetchAndRemoveExtension(args.file_name,".dfpwm")
         print("Disabling video data for you.")
         args.no_video = true
     elseif string.match(args.file_name, ".32vid$") then
-        fetchAndRemoveExtension(".32vid")
+        print("Request for a video file.")
+        args.file_name = fetchAndRemoveExtension(args.file_name,".32vid")
         print("Disabling audio data for you.")
         args.no_audio = true
     end
     print("\nINFO: Don't input any extension to download both video and audio files!")
+end
+
+if args.offline then
+    if string.match(args.URL, ".dfpwm$") then
+        args.URL = fetchAndRemoveExtension(args.URL,".dfpwm") 
+    elseif string.match(args.file_name, ".32vid$") then
+        args.URL = fetchAndRemoveExtension(args.URL,".32vid")
+    end
+    print(executionDir..args.URL..".dfpwm")
+    args["audio_file"] = executionDir..args.URL..".dfpwm"
+    args["video_file"] = executionDir..args.URL..".32vid"
+    if not fs.exists(args.audio_file) then
+        args.no_audio = true
+    elseif not fs.exists(args.video_file) then
+        args.no_video = true
+    end
 end
 
 
@@ -209,7 +229,7 @@ local function get_audiodevices()
     local audiodevices = {}
 
     if args.file_name then
-        audiodevices[#audiodevices + 1] = libs.youcubeapi.File.new(("%s/%s.dfpwm"):format(executionDir, args.file_name))
+        audiodevices[#audiodevices + 1] = libs.youcubeapi.File.new(("%s/%s.dfpwm"):format(programDir, args.file_name))
     else
         local speakers = { peripheral.find("speaker") }
         for i = 1, #speakers do
@@ -361,9 +381,8 @@ local function play_audio(buffer, title)
         audiodevice:setLabel(title)
         audiodevice:setVolume(args.volume)
     end
-
+    local x,y = term.getCursorPos()
     while true do
-        print("Next chunk")
         local chunk = buffer:next()
 
         -- Adjust buffer size on first chunk
@@ -389,10 +408,19 @@ local function play_audio(buffer, title)
             local audiodevice = audiodevices[i]
             table.insert(write_functions, function()
                 audiodevice:write(chunk)
+
+                if audiodevice.path ~= nil then
+                    term.setCursorPos(x,y)
+                    term.clearLine()
+                    term.write("Downloading: ")
+                    write_colored("Chunk n."..buffer.filler.chunkindex, colors.green)
+                    term.setTextColor(colors.white)
+                end
             end)
         end
 
         parallel.waitForAll(table.unpack(write_functions))
+        new_line()
     end
 end
 
@@ -410,59 +438,67 @@ local back_key = settings.get("youcube.keys.back") or keys.a
 
 local function play(url)
     restart = false
-    print("Requesting media ...")
+    local video_buffer
+    local audio_buffer
+    local data = {}
+    if args.offline then
+        print("Playing from file...")
 
-    if not args.no_video then
-        youcubeapi:request_media(url, term.getSize())
+        data["title"] = args.URL
+        audio_buffer = libs.youcubeapi.Buffer.new(
+            libs.youcubeapi.LocalAudioFiller.new(args.audio_file),
+            32
+        )
+
+        audio_buffer.filler:readChunks()  --This reads all the chunks from the file, making them acessible with next()
     else
-        youcubeapi:request_media(url)
-    end
+        print("Requesting media ...")
 
-    local data
-    local x, y = term.getCursorPos()
-
-    repeat
-        data = youcubeapi:receive()
-        if data.action == "status" then
-            os.queueEvent("youcube:status", data)
-            term.setCursorPos(x, y)
-            term.clearLine()
-            term.write("Status: ")
-            write_colored(data.message, colors.green)
-            term.setTextColor(colors.white)
+        if not args.no_video then
+            youcubeapi:request_media(url, term.getSize())
         else
-            new_line()
+            youcubeapi:request_media(url)
         end
-    until data.action == "media"
 
-    if data.action == "error" then
-        error(data.message)
-    end
+        local x, y = term.getCursorPos()
 
-    term.write("Playing: ")
-    term.setTextColor(colors.lime)
-    print(data.title)
-    term.setTextColor(colors.white)
+        repeat
+            data = youcubeapi:receive()
+            if data.action == "status" then
+                os.queueEvent("youcube:status", data)
+                term.setCursorPos(x, y)
+                term.clearLine()
+                term.write("Status: ")
+                write_colored(data.message, colors.green)
+                term.setTextColor(colors.white)
+            else
+                new_line()
+            end
+        until data.action == "media"
 
-    if data.like_count then
-        print("Likes: " .. libs.numberformatter.compact(data.like_count))
-    end
+        if data.action == "error" then
+            error(data.message)
+        end
 
-    if data.view_count then
-        print("Views: " .. libs.numberformatter.compact(data.view_count))
-    end
+        term.write("Playing: ")
+        term.setTextColor(colors.lime)
+        print(data.title)
+        term.setTextColor(colors.white)
 
-    if not args.no_video then
-        -- wait, that the user can see the video info
-        sleep(2)
-    end
+        if data.like_count then
+            print("Likes: " .. libs.numberformatter.compact(data.like_count))
+        end
 
-    local video_buffer = libs.youcubeapi.Buffer.new(
+        if data.view_count then
+            print("Views: " .. libs.numberformatter.compact(data.view_count))
+        end
+
+        video_buffer = libs.youcubeapi.Buffer.new(
         libs.youcubeapi.VideoFiller.new(youcubeapi, data.id, term.getSize()),
         60 -- Most videos run on 30 fps, so we store 2s of video.
-    )
+        )
 
-    local audio_buffer = libs.youcubeapi.Buffer.new(
+        audio_buffer = libs.youcubeapi.Buffer.new(
         libs.youcubeapi.AudioFiller.new(youcubeapi, data.id),
         --[[
             We want to buffer 1024 chunks.
@@ -470,7 +506,14 @@ local function play(url)
             The server (with default settings) sends 32 chunks at once.
         ]]
         32
-    )
+        )
+    end
+    
+
+    if not args.no_video then
+        -- wait, that the user can see the video info
+        sleep(2)
+    end
 
     if args.verbose then
         term.clear()
@@ -512,7 +555,11 @@ local function play(url)
             end
 
             os.queueEvent("youcube:vid_playing", data)
-            libs.youcubeapi.play_vid(video_buffer, args.force_fps, string_unpack)
+            if args.file_name then
+                libs.youcubeapi.save_vid(video_buffer, args.force_fps, ("%s/%s.32vid"):format(programDir, args.file_name))
+            elseif not args.no_video then
+                libs.youcubeapi.play_vid(video_buffer, args.force_fps, string_unpack)
+            end
             os.queueEvent("youcube:vid_eof", data)
         end
     end
@@ -604,11 +651,17 @@ local function play_playlist(playlist)
 end
 
 local function main()
-    youcubeapi:detect_bestest_server(args.server, args.verbose)
+    if not args.offline then
+        youcubeapi:detect_bestest_server(args.server, args.verbose)
+    end
     pcall(update_checker)
 
     if not args.URL then
-        print("Enter Url or Search Term:")
+        if args.offline then
+            print("Enter Path to file:")
+        else
+            print("Enter Url or Search Term:")
+        end
         term.setTextColor(colors.lightGray)
         args.URL = read()
         term.setTextColor(colors.white)

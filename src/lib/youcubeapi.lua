@@ -448,6 +448,36 @@ function AudioFiller.new(youcubeapi, id)
     return self
 end
 
+local LocalAudioFiller = {}
+
+--- Create's a new LocalAudioFiller instance.
+-- @tparam string path Path to the audio file
+-- @treturn AudioFiller|Filler instance
+function LocalAudioFiller.new(path)
+    local self = {
+        path = path,
+        chunkindex = 0,
+        chunks = {}
+    }
+
+    function self:readChunks()
+        print(self.path)
+        local chunkCount = 0
+        for chunk in io.lines(self.path, 16 * 1024) do
+            self.chunks[chunkCount] = chunk
+            chunkCount = chunkCount + 1
+        end
+    end
+
+    function self:next()
+        local chunk = self.chunks[self.chunkindex]
+        self.chunkindex = self.chunkindex + 1
+        return chunk
+    end
+
+    return self
+end
+
 --[[- @{Filler} for Video
     @type VideoFiller
 ]]
@@ -645,6 +675,58 @@ local function play_vid(buffer, force_fps, string_unpack)
     reset_term()
 end
 
+local function save_vid(buffer, force_fps, path)
+    if fs.exists(path) then
+        error(("%s already exists!"):format(path))
+    end
+    local file = fs.open(path, "w")
+
+    local formatChunk = buffer:next()
+    if formatChunk ~= "32Vid 1.1" then
+        error("Unsupported file")
+    end
+    file.writeLine(formatChunk)
+
+    local fps = tonumber(buffer:next())
+    if force_fps then
+        fps = force_fps
+    end
+    file.writeLine(fps)
+
+    -- Adjust buffer size
+    buffer.size = math.ceil(fps) * 2
+
+    local first, second = buffer:next(), buffer:next()
+
+    if second == "" or second == nil then
+        fps = 0
+    end
+
+    file.close()
+
+    local frame_count = 0
+    while true do
+        frame_count = frame_count + 1
+        local frame
+        if first then
+            frame, first = first, nil
+        elseif second then
+            frame, second = second, nil
+        else
+            frame = buffer:next()
+        end
+        if frame == "" or frame == nil then
+            break
+        end
+
+        file = fs.open(path, "ab")
+        for i = 1, #frame do
+            file.write(frame:byte(i))
+        end
+        file.close()
+    end
+end
+
 return {
     --- "Metadata" - [YouCube API](https://commandcracker.github.io/YouCube/) Version
     _API_VERSION = "0.0.0-poc.1.0.0",
@@ -664,8 +746,10 @@ return {
     Base64 = Base64,
     Filler = Filler,
     AudioFiller = AudioFiller,
+    LocalAudioFiller = LocalAudioFiller,
     VideoFiller = VideoFiller,
     Buffer = Buffer,
     play_vid = play_vid,
+    save_vid = save_vid,
     reset_term = reset_term,
 }
