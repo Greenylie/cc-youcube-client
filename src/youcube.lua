@@ -175,7 +175,7 @@ local function fetchAndRemoveExtension(filename,extension)
 end
 
 if args.file_name then
-    args["local_play"] = true
+    args["save_media"] = true
     if string.match(args.file_name, ".dfpwm$") then
         print("Request for an audio file.")
         args.file_name = fetchAndRemoveExtension(args.file_name,".dfpwm")
@@ -193,14 +193,23 @@ end
 if args.offline then
     if string.match(args.URL, ".dfpwm$") then
         args.URL = fetchAndRemoveExtension(args.URL,".dfpwm") 
-    elseif string.match(args.file_name, ".32vid$") then
+        args.no_video = true
+    elseif string.match(args.URL, ".32vid$") then
         args.URL = fetchAndRemoveExtension(args.URL,".32vid")
+        args.no_audio = true
     end
-    print(executionDir..args.URL..".dfpwm")
+
     args["audio_file"] = executionDir..args.URL..".dfpwm"
     args["video_file"] = executionDir..args.URL..".32vid"
-    if not fs.exists(args.audio_file) then
+
+    if fs.exists(args.audio_file) and args.no_audio ~= true then
+        args.no_audio = false --To avoid this being nil, since it caused problems
+    elseif not fs.exists(args.audio_file) then
         args.no_audio = true
+    end
+
+    if fs.exists(args.video_file) and args.no_video ~= true then
+        args.no_video = false --To avoid this being nil, since it caused problems
     elseif not fs.exists(args.video_file) then
         args.no_video = true
     end
@@ -228,7 +237,7 @@ end
 local function get_audiodevices()
     local audiodevices = {}
 
-    if args.file_name then
+    if args.save_media then
         audiodevices[#audiodevices + 1] = libs.youcubeapi.File.new(("%s/%s.dfpwm"):format(programDir, args.file_name))
     else
         local speakers = { peripheral.find("speaker") }
@@ -409,7 +418,7 @@ local function play_audio(buffer, title)
             table.insert(write_functions, function()
                 audiodevice:write(chunk)
 
-                if audiodevice.path ~= nil then
+                if audiodevice.path ~= nil then --If youcube is writing to a file
                     term.setCursorPos(x,y)
                     term.clearLine()
                     term.write("Downloading: ")
@@ -445,12 +454,19 @@ local function play(url)
         print("Playing from file...")
 
         data["title"] = args.URL
+
         audio_buffer = libs.youcubeapi.Buffer.new(
             libs.youcubeapi.LocalAudioFiller.new(args.audio_file),
-            32
+            128
+        )
+        video_buffer = libs.youcubeapi.Buffer.new(
+        libs.youcubeapi.LocalVideoFiller.new(args.video_file, term.getSize()),
+        240 -- Most videos run on 30 fps, so we store 2s of video.
         )
 
-        audio_buffer.filler:readChunks()  --This reads all the chunks from the file, making them acessible with next()
+        audio_buffer.filler:readChunks()  --These reads all the chunks from the file, for their media type
+        video_buffer.filler:readFrames()  --making them acessible with next()
+        print(args.no_video)
     else
         print("Requesting media ...")
 
@@ -555,7 +571,7 @@ local function play(url)
             end
 
             os.queueEvent("youcube:vid_playing", data)
-            if args.file_name then
+            if args.save_media then
                 libs.youcubeapi.save_vid(video_buffer, args.force_fps, ("%s/%s.32vid"):format(programDir, args.file_name))
             elseif not args.no_video then
                 libs.youcubeapi.play_vid(video_buffer, args.force_fps, string_unpack)

@@ -448,11 +448,14 @@ function AudioFiller.new(youcubeapi, id)
     return self
 end
 
+--[[- @{Filler} for Local Audio
+    @type LocalAudioFiller
+]]
 local LocalAudioFiller = {}
 
 --- Create's a new LocalAudioFiller instance.
 -- @tparam string path Path to the audio file
--- @treturn AudioFiller|Filler instance
+-- @treturn LocalAudioFiller|Filler instance
 function LocalAudioFiller.new(path)
     local self = {
         path = path,
@@ -462,15 +465,15 @@ function LocalAudioFiller.new(path)
 
     function self:readChunks()
         print(self.path)
-        local chunkCount = 0
+        local chunksCount = 0
         for chunk in io.lines(self.path, 16 * 1024) do
-            self.chunks[chunkCount] = chunk
-            chunkCount = chunkCount + 1
+            self.chunks[chunksCount] = chunk
+            chunksCount = chunksCount + 1
         end
     end
 
     function self:next()
-        local chunk = self.chunks[self.chunkindex]
+        local chunk = self.chunks
         self.chunkindex = self.chunkindex + 1
         return chunk
     end
@@ -509,6 +512,55 @@ function VideoFiller.new(youcubeapi, id, width, height)
     return self
 end
 
+--[[- @{Filler} for Local Video
+    @type LocalVideoFiller
+]]
+local LocalVideoFiller = {}
+
+--- Create's a new LocalVideoFiller instance.
+-- @tparam string path Path to the video file
+-- @treturn LocalVideoFiller|Filler instance
+function LocalVideoFiller.new(path, width, height)
+    local self = {
+        path = path,
+        width = width,
+        height = height,
+        frameindex = 0,
+        frames = {}
+    }
+
+    function self:readFrames()
+        local framesCount = 0
+        for frame in io.lines(self.path) do
+            self.frames[framesCount] = frame
+            framesCount = framesCount + 1
+        end
+        print(("Video frames read: %d"):format(framesCount))
+        local fps, video_width, video_height = string.match(self.frames[1], "(%d+),(%d+)x(%d+)") --As in save_vid, we are storing the fps and resolution of the video
+        self.frames[1] = fps --Making the second line of the .32vid file compatible with the standard play_vid function
+
+        --Handling resolution mismatch warning
+        local resolution = ("%dx%d"):format(video_width,video_height)
+        local monitor_resolution = ("%dx%d"):format(width,height)
+        if resolution ~= monitor_resolution then
+            term.setTextColor(colors.yellow)
+            term.write("WARNING: The original video resolution is different from the one of the monitor:\n")
+            term.setTextColor(colors.green)
+            term.write(("[VIDEO] %s\n"):format(resolution))
+            term.setTextColor(colors.orange)
+            term.write(("[MONITOR] %s\n"):format(monitor_resolution))
+        end
+    end
+
+    function self:next()
+        local frame = self.frames[self.frameindex]
+        self.frameindex = self.frameindex + 1
+        return frame
+    end
+
+    return self
+end
+
 --[[- Buffers Data
     @type Buffer
 ]]
@@ -535,6 +587,11 @@ function Buffer.new(filler, size)
     end
 
     function self:fill()
+        local file = fs.open("tmp.dat","w")
+        file.close()
+        fs.delete("tmp.dat")
+        -- ^ I have absolutely no clue why this is needed, without it, for some reason the videobuffer freezes after a while
+
         if #self.buffer < self.size then
             local next = filler:next()
             if type(next) == "table" then
@@ -691,38 +748,24 @@ local function save_vid(buffer, force_fps, path)
     if force_fps then
         fps = force_fps
     end
-    file.writeLine(fps)
+    local Fwidth, Fheight = term.getSize()
+    file.writeLine(("%d,%dx%d"):format(fps,Fwidth,Fheight)) --We store the terminal size to warn the user if there's a mismatch
 
     -- Adjust buffer size
     buffer.size = math.ceil(fps) * 2
 
-    local first, second = buffer:next(), buffer:next()
-
-    if second == "" or second == nil then
-        fps = 0
-    end
-
-    file.close()
+    file.close() --Closing the handle to avoid locked files on user manual interruption
 
     local frame_count = 0
     while true do
         frame_count = frame_count + 1
-        local frame
-        if first then
-            frame, first = first, nil
-        elseif second then
-            frame, second = second, nil
-        else
-            frame = buffer:next()
-        end
+        local frame = buffer:next()
+
         if frame == "" or frame == nil then
             break
         end
-
-        file = fs.open(path, "ab")
-        for i = 1, #frame do
-            file.write(frame:byte(i))
-        end
+        file = fs.open(path,"a")
+        file.writeLine(frame)
         file.close()
     end
 end
@@ -748,6 +791,7 @@ return {
     AudioFiller = AudioFiller,
     LocalAudioFiller = LocalAudioFiller,
     VideoFiller = VideoFiller,
+    LocalVideoFiller = LocalVideoFiller,
     Buffer = Buffer,
     play_vid = play_vid,
     save_vid = save_vid,
