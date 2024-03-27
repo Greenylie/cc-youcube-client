@@ -587,11 +587,6 @@ function Buffer.new(filler, size)
     end
 
     function self:fill()
-        local file = fs.open("tmp.dat","w")
-        file.close()
-        fs.delete("tmp.dat")
-        -- ^ I have absolutely no clue why this is needed, without it, for some reason the videobuffer freezes after a while
-
         if #self.buffer < self.size then
             local next = filler:next()
             if type(next) == "table" then

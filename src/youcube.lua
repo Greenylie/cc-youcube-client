@@ -457,13 +457,13 @@ local function play(url)
 
         audio_buffer = libs.youcubeapi.Buffer.new(
             libs.youcubeapi.LocalAudioFiller.new(args.audio_file),
-            128
+            64
         )
         video_buffer = libs.youcubeapi.Buffer.new(
         libs.youcubeapi.LocalVideoFiller.new(args.video_file, term.getSize()),
-        240 -- Most videos run on 30 fps, so we store 2s of video.
+        120
         )
-
+        
         audio_buffer.filler:readChunks()  --These reads all the chunks from the file, for their media type
         video_buffer.filler:readFrames()  --making them acessible with next()
         print(args.no_video)
@@ -559,6 +559,13 @@ local function play(url)
 
             if not args.no_video then
                 video_buffer:fill()
+            end
+
+            if args.offline then
+                while true do
+                    local ev = {os.pullEvent()}
+                    if ev[1] == "__queue_back" then break end
+                  end
             end
         end
     end
@@ -705,7 +712,9 @@ local function main()
         play(args.URL)
     end
 
-    youcubeapi.websocket.close()
+    if not args.offline then
+        youcubeapi.websocket.close()
+    end
 
     if not args.no_video then
         libs.youcubeapi.reset_term()
